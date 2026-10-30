@@ -1,6 +1,6 @@
 {
   "name": "api-chassis",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "API boilerplate that bundles a lot of stuff: file-system service registration, hooks, validation, micro-service clients, caching, queues and sockets.",
   "license": "MIT",
   "author": "Harkarman Singh",
