@@ -8,7 +8,7 @@ export type Format = 'cjs' | 'esm';
 export interface StartOptions {
   fixture: 'app' | 'pg-app' | 'broken-app';
   format: Format;
-  /** Passed to `new Chassis(...)`; `database.instance: 'fake'` is swapped for a stub. */
+  /** Passed to `new Chassis(...)`. Fixtures with a schema.mjs also get an in-memory Postgres. */
   config?: Record<string, unknown>;
   /** Extra env vars. INTERNAL_TOKEN is only set when given here. */
   env?: Record<string, string>;

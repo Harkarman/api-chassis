@@ -196,8 +196,7 @@ export async function registerServices(
 
     const modelModule = await loadOptionalModule(modelPath);
     if (modelModule) {
-      const modelExport = modelModule.default;
-      Model = database?.instance ? modelExport(database.instance) : modelExport;
+      Model = modelModule.default;
     }
 
     const validatorModule = await loadOptionalModule(validatorPath);
@@ -214,7 +213,7 @@ export async function registerServices(
     if (Model) {
       serviceConfig.Model = Model;
     }
-    serviceConfig.dialect = database?.dialect ?? 'mongodb';
+    serviceConfig.db = database?.instance;
 
     const service = new (await loadService(serviceDirPath, entry.name)).default(
       serviceConfig

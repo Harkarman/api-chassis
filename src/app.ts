@@ -13,7 +13,11 @@ import {
   Socket,
   SubMicroServiceNames,
 } from '.';
-import {MicroService, registerMicroServices} from './services';
+import {
+  type DrizzleDatabase,
+  MicroService,
+  registerMicroServices,
+} from './services';
 import {registerServices} from './services/register-services';
 import {InternalLogs} from './libs';
 import {LoggerOptions} from 'express-winston';
@@ -53,8 +57,6 @@ export class MicroServices {
 }
 
 export const ChassisEvents = new EventEmitter();
-
-export type Dialect = 'mongodb' | 'postgres';
 
 export interface IExpressOptions {
   limit?: string;
@@ -97,12 +99,11 @@ export interface Config {
    */
   rootDir?: string;
   database?: {
-    dialect?: Dialect;
     /**
-     * When set, each service's `model` default export is called with this
-     * instance (e.g. a Sequelize connection) to build the model.
+     * The Drizzle database (`drizzle({client})` with any Postgres driver).
+     * Each service's `model` file default-exports its `pgTable`.
      */
-    instance?: any;
+    instance?: DrizzleDatabase;
   };
   auth?: IAuth;
   socket?: ISocket;
@@ -254,7 +255,7 @@ export class Chassis {
 
     const {dsn, options = {}} = sentry;
 
-    // HTTP, Express, Mongo/Mongoose and unhandled-rejection integrations are
+    // HTTP, Express, Postgres and unhandled-rejection integrations are
     // enabled by default in @sentry/node >= 8; Express errors are captured via
     // diagnostics channels, so no request/error middleware is needed.
     Sentry.init({

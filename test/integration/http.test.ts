@@ -16,12 +16,12 @@ describe.each<Format>(['cjs', 'esm'])('%s build', format => {
   });
   afterAll(() => app?.stop());
 
-  it('runs CRUD through the Mongo adapter', async () => {
+  it('runs CRUD on a Drizzle table', async () => {
     const created = await app.request('POST', '/widgets', {
       body: {name: 'bolt', price: '10'},
     });
     expect(created.status).toBe(200);
-    const id = created.json.data._id;
+    const id = created.json.data.id;
 
     expect(
       (await app.request('GET', `/widgets/${id}`)).json.data
@@ -33,7 +33,7 @@ describe.each<Format>(['cjs', 'esm'])('%s build', format => {
     expect(patched.json.data.price).toBe(20);
 
     const removed = await app.request('DELETE', `/widgets/${id}`);
-    expect(removed.json.data._id).toBe(id);
+    expect(removed.json.data.id).toBe(id);
   });
 
   it('passes the validated value on to the service', async () => {
@@ -59,7 +59,7 @@ describe.each<Format>(['cjs', 'esm'])('%s build', format => {
     const {json} = await app.request('POST', '/widgets', {
       body: {name: 'hooked'},
     });
-    const got = await app.request('GET', `/widgets/${json.data._id}`);
+    const got = await app.request('GET', `/widgets/${json.data.id}`);
     expect(got.json.data.hooked).toBe(true);
 
     const list = await app.request('GET', '/widgets');
@@ -116,29 +116,56 @@ describe.each<Format>(['cjs', 'esm'])('%s build', format => {
   });
 });
 
-describe('postgres dialect', () => {
+describe.each<Format>(['cjs', 'esm'])('postgres (%s)', format => {
   let app: RunningApp;
   beforeAll(async () => {
     app = await startApp({
       fixture: 'pg-app',
-      format: 'cjs',
-      config: {database: {dialect: 'postgres', instance: 'fake'}},
+      format,
     });
   });
   afterAll(() => app?.stop());
 
-  it('builds models from the factory and runs CRUD', async () => {
+  it('runs CRUD on a Drizzle table', async () => {
     const created = await app.request('POST', '/orders', {body: {total: 5}});
-    expect(created.json.data).toMatchObject({id: '1', total: 5});
+    expect(created.json.data).toEqual({id: 1, total: 5, status: 'open'});
     expect((await app.request('GET', '/orders/1')).json.data.total).toBe(5);
-    expect((await app.request('GET', '/orders')).json.data).toHaveLength(1);
+
+    const patched = await app.request('PATCH', '/orders/1', {
+      body: {status: 'paid'},
+    });
+    expect(patched.json.data).toMatchObject({total: 5, status: 'paid'});
+
+    const removed = await app.request('DELETE', '/orders/1');
+    expect(removed.json.data.id).toBe(1);
+    expect((await app.request('GET', '/orders/1')).status).toBe(400);
+  });
+
+  it('filters with query-string operators', async () => {
+    for (const total of [10, 20, 30]) {
+      await app.request('POST', '/orders', {body: {total}});
+    }
+    const res = await app.request('GET', '/orders?total[$gte]=20&$limit=1');
+    expect(res.json.data.map((o: any) => o.total)).toEqual([20]);
+  });
+
+  it('rejects unknown query fields with 400', async () => {
+    const res = await app.request('GET', '/orders?nope=1');
+    expect(res).toEqual({
+      status: 400,
+      json: {message: 'Unknown query field "nope"'},
+    });
+  });
+
+  it('responds 400 when updating a missing row', async () => {
+    const res = await app.request('PATCH', '/orders/999', {body: {total: 1}});
+    expect(res.json.message).toBe('No record found for 999');
   });
 
   it('honours a `pagination = true` class field', async () => {
     await app.request('POST', '/paged', {body: {total: 1}});
     const res = await app.request('GET', '/paged');
-    expect(res.json.data).toMatchObject({count: 1});
-    expect(res.json.data.rows).toHaveLength(1);
+    expect(res.json.data).toEqual({rows: [{id: 1, total: 1}], count: 1});
   });
 });
 

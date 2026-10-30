@@ -2,11 +2,11 @@
 
 Convention-based Express 5 API framework for Node.js. Drop a folder into `services/` and you get a full REST resource: routes, validation, hooks, error handling and a consistent response shape.
 
-```
+```text
 services/
   widgets/
     service.ts     → GET/POST /widgets, GET/PUT/PATCH/DELETE /widgets/:id
-    model.ts       → Mongoose model or Sequelize model factory
+    model.ts       → Drizzle table
     validator.ts   → per-method request validation (optional)
     hooks.ts       → before/after hooks (optional)
 ```
@@ -14,7 +14,7 @@ services/
 ## Features
 
 - **File-system service registration.** Each folder in `services/` becomes a CRUD router, mounted at `/<folder-name>`.
-- **MongoDB or PostgreSQL.** Built-in adapters for Mongoose and Sequelize. Override any method to customise behaviour.
+- **PostgreSQL through [Drizzle](https://orm.drizzle.team).** Generic CRUD with query-string filters out of the box. Override any method to use Drizzle's query builder or raw SQL.
 - **Validation.** Plug in Joi (or any schema with `validateAsync`) per method. Invalid requests are rejected with `400`.
 - **Hooks.** `before` and `after` hooks per method or for `all` methods, with ready-made `disallow`, `externalDisallow` and `loggedIn` hooks.
 - **Typed HTTP errors.** Throw `BadRequest`, `Unauthorized`, `NotFound`, etc., and the right status and message are sent.
@@ -26,71 +26,70 @@ services/
 
 - Node.js **26** or newer (the current LTS)
 - Express **5**
-- `mongoose` (8+) for MongoDB, or `sequelize` (6) for PostgreSQL. Both are optional peer dependencies, so install the one you use.
+- `drizzle-orm` (0.45+ or 1.x) and a Postgres driver such as `pg`, for services backed by a table. They're optional peer dependencies: services that don't use a database don't need them.
 - Redis, if you use caching, queues or the Socket.IO Redis adapter
 
 ## Install
 
 ```sh
-npm install api-chassis express
-# plus one of:
-npm install mongoose
-npm install sequelize pg pg-hstore
+npm install api-chassis express drizzle-orm pg
 ```
 
-## Quick start (MongoDB)
+## Quick start
 
 **`app.ts`**
 
 ```ts
 import express from 'express';
-import mongoose from 'mongoose';
+import {drizzle} from 'drizzle-orm/node-postgres';
+import {Pool} from 'pg';
 import {Chassis} from 'api-chassis';
 
-await mongoose.connect(process.env.MONGO_URL!);
+const db = drizzle({
+  client: new Pool({connectionString: process.env.DATABASE_URL}),
+});
 
 new Chassis({
   app: express(),
   rootDir: import.meta.dirname, // folder containing services/ and micro-services/
+  database: {instance: db},
 });
 ```
+
+Create the database with the object form, `drizzle({client})`. Passing the pool directly, `drizzle(pool)`, works in drizzle-orm 0.45, but 1.0 ignores the pool and connects to the default address instead.
 
 **`services/widgets/model.ts`**
 
 ```ts
-import {model, Schema} from 'mongoose';
+import {integer, pgTable, serial, text} from 'drizzle-orm/pg-core';
 
-export interface Widget {
-  name: string;
-  price: number;
-}
-
-export default model<Widget>(
-  'Widget',
-  new Schema<Widget>({
-    name: {type: String, required: true},
-    price: Number,
-  })
-);
+export default pgTable('widgets', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  price: integer('price'),
+  ownerId: integer('owner_id'),
+});
 ```
 
 **`services/widgets/service.ts`**
 
 ```ts
 import {ChassisService} from 'api-chassis';
-import type {Widget} from './model';
+import type widgets from './model';
+
+export type Widget = typeof widgets.$inferSelect;
 
 export default class Widgets extends ChassisService<Widget> {}
 ```
 
-Start the app. The server listens on `PORT` (default `3000`):
+api-chassis doesn't create or migrate tables; use [drizzle-kit](https://orm.drizzle.team/docs/kit-overview) or your own migrations. Start the app. The server listens on `PORT` (default `3000`):
 
 ```sh
 curl -X POST localhost:3000/widgets -H 'content-type: application/json' -d '{"name":"bolt","price":10}'
-# {"message":"ok","data":{"_id":"...","name":"bolt","price":10}}
+# {"message":"ok","data":{"id":1,"name":"bolt","price":10,"ownerId":null}}
 
 curl 'localhost:3000/widgets?price[$gt]=5'
-# {"message":"ok","data":[{"_id":"...","name":"bolt","price":10}]}
+# {"message":"ok","data":[{"id":1,"name":"bolt","price":10,"ownerId":null}]}
 ```
 
 ## Usage
@@ -114,11 +113,13 @@ Responses are wrapped as `{ "message": "ok", "data": ... }`. Pass `response: { f
 
 ### Custom service logic
 
-Override any method. The underscore variants (`_find`, `_get`, `_create`, `_update`, `_patch`, `_remove`) call the database adapter directly without the request arguments. `this.model` is the model itself.
+Override any method. The underscore variants (`_find`, `_get`, `_create`, `_update`, `_patch`, `_remove`) call the database adapter directly without the request arguments. `this.model` is the service's table.
 
 ```ts
 import {ChassisService, NotFound, type Query, type User} from 'api-chassis';
-import type {Widget} from './model';
+import type widgets from './model';
+
+type Widget = typeof widgets.$inferSelect;
 
 export default class Widgets extends ChassisService<Widget> {
   async find(query: Query = {}, user?: User) {
@@ -135,43 +136,66 @@ export default class Widgets extends ChassisService<Widget> {
 
 Leave a method out of a service class that doesn't extend `ChassisService`, and its route returns `404`. Set `auth = false` on a service to skip the auth check (see [Authentication](#authentication)).
 
-### PostgreSQL (Sequelize)
+### Database (Drizzle)
 
-Pass the Sequelize instance as `database.instance`. Each `model` file then default-exports a **factory** that receives it:
-
-```ts
-// app.ts
-const sequelize = new Sequelize(process.env.DATABASE_URL!);
-new Chassis({
-  app: express(),
-  rootDir: import.meta.dirname,
-  database: {dialect: 'postgres', instance: sequelize},
-});
-```
+Each `model` file default-exports the service's Drizzle table, and `database.instance` is your Drizzle database (see [Quick start](#quick-start)).
 
 ```ts
 // services/orders/model.ts
-import {DataTypes, type Sequelize} from 'sequelize';
+import {integer, pgTable, serial, text} from 'drizzle-orm/pg-core';
 
-export default (sequelize: Sequelize) =>
-  sequelize.define('Order', {total: DataTypes.DECIMAL});
+export default pgTable('orders', {
+  id: serial('id').primaryKey(),
+  total: integer('total').notNull(),
+  status: text('status').default('open'),
+  customerId: integer('customer_id'),
+});
 ```
 
 ```ts
 // services/orders/service.ts
 import {ChassisService} from 'api-chassis';
+import type orders from './model';
 
-interface Order {
-  id: number;
-  total: string;
-}
-
-export default class Orders extends ChassisService<Order, 'postgres'> {
+export default class Orders extends ChassisService<typeof orders.$inferSelect> {
   pagination = true; // find returns { rows, count } instead of an array
 }
 ```
 
-On Postgres, `find` supports `$limit` and `$offset`, and every other query key becomes a `where` clause.
+The generic routes work like this:
+
+- **`find`**: each query key must be a column (by its JS name), or the request gets a `400`. A plain value means equals, and a repeated key (`?id=1&id=2`) means "any of". Operators are `$gt`, `$gte`, `$lt`, `$lte`, `$ne`, `$in`, `$nin`, `$like` and `$ilike`, e.g. `?total[$gte]=20`. `$limit` and `$offset` page through the results, which are ordered by primary key.
+- **`:id`**: matches the table's primary key. For a table without a single-column primary key, set `primaryKey = 'slug'` (any column) on the service. Any query string is applied too, so `GET /orders/1?status=open` only matches an open order.
+- **Bodies**: keys that aren't columns are ignored, and a body with no column keys gets a `400`.
+- **Responses**: `create` returns the new row, or an array of rows when you post an array. `update`, `patch` and `remove` return the affected row, and a missing id gets a `400`.
+
+For anything more complex, such as joins, aggregates or raw SQL, override a method and use `this.db`. `this.toDrizzleQuery(query)` turns the request's query string into a Drizzle `where`, `limit` and `offset`, so custom queries accept the same filters as the generic routes:
+
+```ts
+import {ChassisService, type Query} from 'api-chassis';
+import {eq, sql} from 'drizzle-orm';
+import orders from './model';
+import customers from '../customers/model';
+
+export default class Orders extends ChassisService<any> {
+  async find(query: Query = {}) {
+    const {where, limit, offset} = await this.toDrizzleQuery(query);
+    return this.db!.select({
+      id: orders.id,
+      total: orders.total,
+      customer: customers.name,
+      lifetime: sql<number>`sum(${orders.total}) over (partition by ${customers.id})`,
+    })
+      .from(orders)
+      .innerJoin(customers, eq(orders.customerId, customers.id))
+      .where(where)
+      .limit(limit ?? 100)
+      .offset(offset ?? 0);
+  }
+}
+```
+
+api-chassis itself only uses the parts of Drizzle that are the same in 0.45 and 1.x: the core `select`, `insert`, `update` and `delete` builders and the basic operators. It doesn't use the relational query API (`db.query`), which 1.0 changes. CI runs the tests on both versions.
 
 ### Validation
 
@@ -374,7 +398,7 @@ Startup fails if a service, model, validator, hooks or micro-service file can't 
 | ---------------- | ------------------------------------------------------------------------------------------- |
 | `app`            | Your Express 5 application (required).                                                      |
 | `rootDir`        | Folder containing `services/` and `micro-services/`. Defaults to the entry script's folder. |
-| `database`       | `{ dialect: 'mongodb' \| 'postgres', instance? }`. `instance` is passed to model factories. |
+| `database`       | `{ instance }`: your Drizzle database. Services backed by a table need it.                  |
 | `auth`           | `{ required, baseURL, payload? }`. See [Authentication](#authentication).                   |
 | `response`       | `{ flat: true }` sends data without the `{ message, data }` envelope.                       |
 | `express`        | `{ limit }`: JSON body size limit (default `50mb`).                                         |

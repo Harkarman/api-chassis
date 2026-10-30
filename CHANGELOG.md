@@ -9,7 +9,8 @@ First release of api-chassis.
 ### Added
 
 - File-system service registration: each folder (or single file) in `services/` becomes a REST resource with `find`, `get`, `create`, `update`, `patch` and `remove` routes.
-- `ChassisService` with MongoDB (Mongoose) and PostgreSQL (Sequelize) adapters, including `$limit`/`$offset` and optional `{rows, count}` pagination on Postgres.
+- `ChassisService`, backed by PostgreSQL through Drizzle. It works with drizzle-orm 0.45 and 1.x, because it only uses the core query builders. Query strings support column filters, the `$gt`, `$gte`, `$lt`, `$lte`, `$ne`, `$in`, `$nin`, `$like` and `$ilike` operators, `$limit` and `$offset`, plus optional `{rows, count}` pagination and a `primaryKey` override.
+- `this.db` and `this.toDrizzleQuery(query)` for custom Postgres queries (joins, aggregates, raw SQL) that accept the same query strings as the generic routes.
 - Per-method validation with Joi-style schemas. The validated value, with defaults and conversions applied, is what the service receives.
 - `before`, `after` and `all` hooks, with the built-in `disallow`, `externalDisallow` and `loggedIn` hooks and a `findRequest` helper.
 - `HttpError` and the `BadRequest`, `Unauthorized`, `PaymentRequired`, `Forbidden`, `NotFound`, `NoContent` and `InternalServer` classes, plus `isHttpError`.

@@ -11,6 +11,12 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # `lockfile` is the Drizzle version in package-lock.json. `rc` tracks
+        # the upcoming 1.0 so the adapter keeps working on both.
+        drizzle: [lockfile, rc]
     services:
       redis:
         image: redis:7-alpine
@@ -21,6 +27,17 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -28,11 +45,15 @@ jobs:
           node-version: 26
           cache: npm
       - run: npm ci
+      - if: matrix.drizzle != 'lockfile'
+        run: npm install --no-save drizzle-orm@${{ matrix.drizzle }}
       - run: npm run format:check
       - run: npm run typecheck
       - run: npm run lint
       # Builds first (pretest), then runs unit and integration tests against
-      # both the CJS and ESM bundles, plus the BullMQ tests against Redis.
+      # both the CJS and ESM bundles, the Postgres adapter against PGlite and
+      # a real Postgres, and the BullMQ tests against Redis.
       - run: npm test
         env:
           REDIS_URL: redis://localhost:6379
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
