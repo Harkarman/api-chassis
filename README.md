@@ -422,11 +422,24 @@ Startup fails if a service, model, validator, hooks or micro-service file can't 
 ## Development
 
 ```sh
-npm test                                # builds, then runs unit and integration tests
-REDIS_URL=redis://localhost:6379 npm test   # also runs the BullMQ tests
+npm test                                   # builds, then runs unit and integration tests
+REDIS_URL=redis://localhost:6379 npm test  # also runs the BullMQ tests
+DATABASE_URL=postgres://... npm test       # also runs the Postgres tests against a real server
 ```
 
-The integration tests start the apps in `test/fixtures` as separate Node processes, against both the CommonJS and ESM builds. CI runs formatting, type-checking, lint and the full test suite (with a Redis service) on every push and pull request.
+Without `DATABASE_URL`, the Postgres tests run against an in-memory Postgres ([PGlite](https://pglite.dev)). The integration tests start the apps in `test/fixtures` as separate Node processes, against both the CommonJS and ESM builds. On every push and pull request, CI runs formatting, type-checking, lint and the full test suite, with Redis and Postgres services. It runs everything twice: once on the locked drizzle-orm version and once on the upcoming 1.0.
+
+## Releasing
+
+Releases go to npm through the [Release workflow](.github/workflows/release.yml) and npm's staged publishing:
+
+1. Move the changes under `## Unreleased` in [CHANGELOG.md](CHANGELOG.md) to a new version heading, and commit.
+2. Run `npm version patch` (or `minor`/`major`). It bumps `package.json`, commits and creates the `vX.Y.Z` tag.
+3. Run `git push --follow-tags`.
+4. On GitHub, publish a release from the new tag, using the CHANGELOG section as the notes.
+5. When the workflow finishes, approve the staged version on npmjs.com (_Staged Packages_), or run `npm stage approve <stage-id>`. Approval needs your 2FA, and the version only goes live then.
+
+The workflow runs the full CI suite, checks that the tag matches `package.json`, builds the package and stages it with provenance. It authenticates with npm trusted publishing, so no npm token is stored in the repo. Its trusted publisher is only allowed to stage, never publish directly, so a compromised workflow can't release anything without your approval. Versions with a prerelease suffix, such as `0.2.0-rc.1`, are staged under the `next` tag instead of `latest`.
 
 ## License
 

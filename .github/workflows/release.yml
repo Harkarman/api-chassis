@@ -1,0 +1,61 @@
+name: Release
+
+# Stages a new npm version when a GitHub Release is published. A maintainer
+# then approves it with 2FA to make it live. Authenticates with npm trusted
+# publishing (OIDC), so there's no npm token in the repo secrets.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      # Lets npm verify this workflow is the package's trusted publisher.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          registry-url: https://registry.npmjs.org
+
+      - name: Check the release tag matches package.json
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::Release tag $TAG doesn't match package.json version v$version"
+            exit 1
+          fi
+
+      - run: npm ci
+      - run: npm run build
+
+      # Stages the version on npm. It goes live only when a maintainer
+      # approves it with 2FA (npmjs.com > Staged Packages, or
+      # `npm stage approve <stage-id>`); the workflow's OIDC token can't.
+      # Prerelease versions (e.g. 0.2.0-rc.1) go to the `next` dist-tag so
+      # `npm install api-chassis` keeps getting the latest stable release.
+      - name: Stage for publishing
+        run: |
+          version=$(node -p "require('./package.json').version")
+          case "$version" in
+            *-*) npm stage publish --provenance --tag next ;;
+            *) npm stage publish --provenance ;;
+          esac
