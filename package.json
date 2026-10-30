@@ -30,7 +30,8 @@
   },
   "files": [
     "dist",
-    "src"
+    "src",
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=26"
@@ -79,5 +80,13 @@
     "typescript": "~6.0",
     "typescript-eslint": "^8.72.1",
     "vitest": "^5.0.5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Harkarman/api-chassis.git"
+  },
+  "homepage": "https://github.com/Harkarman/api-chassis#readme",
+  "bugs": {
+    "url": "https://github.com/Harkarman/api-chassis/issues"
   }
 }
